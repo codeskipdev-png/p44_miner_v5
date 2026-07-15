@@ -119,7 +119,31 @@ def _evaluate(blend: ServingBlend, X_std, y_std, X_pool, y_pool) -> Dict:
     return out
 
 
+def _refuse_if_shared_artifact() -> None:
+    """v5 SHARES v3's model artifact by symlink -- retraining here is always wrong.
+
+    v5 is a serving-discipline arm: identical code and identical model to v3, differing
+    only in HOW MANY chunks it flags (adaptive budget vs v3's fixed top-k). That
+    comparison is only meaningful while the two serve the SAME model, which is why
+    artifacts/serving_blend_v3.pkl is a symlink into 04_our_miner and why v5 is
+    deliberately absent from retrain_all.py's MINERS.
+
+    Promotion does `tmp.replace(SERVING)`, which would replace the SYMLINK with a real
+    file -- silently ending the sharing and letting v5's model drift from v3's, destroying
+    the experiment with no error. Fail loudly instead. Retrain v3; v5 follows for free
+    (and re-calibrates its threshold automatically on the new model's mtime).
+    """
+    if SERVING.is_symlink():
+        raise SystemExit(
+            "REFUSING to retrain v5: artifacts/serving_blend_v3.pkl is a symlink to v3's "
+            "artifact. v5 shares v3's model on purpose (only the flag-count discipline "
+            "differs). Retrain v3 instead -- v5 picks the new model up via the symlink and "
+            "re-calibrates min_score on load."
+        )
+
+
 def run_cycle(*, dry_run: bool = False, skip_fetch: bool = False) -> Dict:
+    _refuse_if_shared_artifact()
     summary: Dict = {"started_at": dt.datetime.utcnow().isoformat() + "Z"}
 
     if skip_fetch:
