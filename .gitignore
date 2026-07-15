@@ -1,0 +1,27 @@
+# secrets / local runtime — NEVER publish
+.env
+.env.*
+.venv
+.venv/
+
+# trained weights, artifacts, caches — withheld (private competitive edge)
+artifacts/
+*.pkl
+*.joblib
+*.pt
+*.npz
+*.bin
+feature_cache/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+
+# internal notes / analysis — keep private
+REVIEW.md
+NOTES*.md
+*_internal.md
+
+# training byproducts
+catboost_info/
