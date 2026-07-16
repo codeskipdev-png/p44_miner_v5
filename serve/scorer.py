@@ -28,6 +28,8 @@ import numpy as np
 # are identical (verified: max diff 3e-16). Silence the benign name-mismatch spam.
 warnings.filterwarnings("ignore", message="X does not have valid feature names")
 
+from threadpoolctl import threadpool_limits
+
 from pipeline.features import chunk_features
 from pipeline.threshold import shape_adaptive
 
@@ -160,16 +162,21 @@ class ChunkScorer:
         scores = np.full(n, FALLBACK_SCORE, dtype=float)
         if rows:
             try:
-                X = self.blend.featurize(rows)
-                # v5: the model's calibrated probability decides HOW MANY chunks are
-                # flagged; the rank decides WHICH. See pipeline.threshold.shape_adaptive.
-                shaped = shape_adaptive(
-                    self.blend.score_prob(X),
-                    self.blend.score_rank(X),
-                    min_score=self.min_score,
-                    max_pos_frac=self.max_pos_frac,
-                    min_pos=self.min_pos,
-                )
+                # M7: clamp BLAS/OpenMP to 1 thread for the predict. LightGBM/sklearn
+                # ignore n_jobs on a shared box and oversubscribe cores; a serve that
+                # blows the 180s validator timeout => whole round scored 0. Cannot
+                # change ranking, only prevents the timeout tail. (uid111 detector.py:84)
+                with threadpool_limits(limits=1):
+                    X = self.blend.featurize(rows)
+                    # v5: the model's calibrated probability decides HOW MANY chunks are
+                    # flagged; the rank decides WHICH. See pipeline.threshold.shape_adaptive.
+                    shaped = shape_adaptive(
+                        self.blend.score_prob(X),
+                        self.blend.score_rank(X),
+                        min_score=self.min_score,
+                        max_pos_frac=self.max_pos_frac,
+                        min_pos=self.min_pos,
+                    )
                 for j, i in enumerate(usable_idx):
                     scores[i] = shaped[j]
             except Exception:
