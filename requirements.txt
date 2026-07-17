@@ -6,6 +6,6 @@ lightgbm>=4.4
 xgboost>=2.1
 catboost>=1.2
 joblib>=1.4
-bittensor>=9,<10
+bittensor>=10.3.0  # v431 network upgrade (2026-07) requires SDK >=10.3.0
 python-dotenv>=1.0
 requests>=2.31

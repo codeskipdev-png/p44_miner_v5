@@ -22,6 +22,15 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
 import bittensor as bt
+
+# bittensor 10.x (the v431 network upgrade requires SDK >= 10.3.0) renamed the
+# lowercase factory names to CapCase and dropped the old aliases. Restore the
+# lowercase names to the new classes so our call sites keep working on 9.x and 10.x.
+for _old, _new in (("subtensor", "Subtensor"), ("wallet", "Wallet"),
+                   ("axon", "Axon"), ("config", "Config")):
+    if not hasattr(bt, _old) and hasattr(bt, _new):
+        setattr(bt, _old, getattr(bt, _new))
+
 from dotenv import load_dotenv
 from pydantic import ConfigDict, Field
 
@@ -259,6 +268,11 @@ def parse_config() -> bt.config:
     bt.axon.add_args(parser)
     bt.logging.add_args(parser)
     config = bt.config(parser)
+    # bittensor 10.x's Config drops bare top-level args (e.g. --netuid) that aren't
+    # registered by a component add_args(); 9.x kept them. Restore netuid from the raw
+    # parse (respects an explicit --netuid and the default) so config.netuid is set.
+    if config.get("netuid") is None:
+        config.netuid = parser.parse_known_args()[0].netuid
     # Env-driven defaults (from .env) so pm2 can run the module with no CLI args.
     # Explicit CLI flags still win (argparse defaults are only applied when unset).
     if os.getenv("WALLET_NAME") and config.wallet.name == "default":
