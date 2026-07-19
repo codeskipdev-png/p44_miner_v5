@@ -290,4 +290,7 @@ def parse_config() -> bt.config:
 if __name__ == "__main__":
     config = parse_config()
     bt.logging(config=config)
+    # bittensor 10.x: bt.logging(config=...) alone no longer emits INFO to stdout
+    # (9.x did). Explicitly enable so pm2 captures serve counts / uid / incentive.
+    bt.logging.enable_info()
     Miner(config).run()
