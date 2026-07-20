@@ -105,7 +105,14 @@ class Miner:
         self.manifest = build_manifest()
         allow = os.getenv("P44_ALLOWED_VALIDATOR_HOTKEYS", "").split()
         self.allowed_hotkeys = set(h for h in allow if h)
-        self.min_stake = float(os.getenv("P44_MIN_VALIDATOR_STAKE", "1000"))
+        # Admission policy matches the REFERENCE miner (poker44/base/miner.common_blacklist):
+        # NO minimum-stake floor, and validator-permit is OPT-IN (default off). Our old
+        # blacklist hardcoded permit-required + stake>=1000, which rejected the manifest-
+        # collection poll -> the miner returned an empty synapse -> the validator recorded an
+        # EMPTY manifest -> "opaque" + the -0.50 manifest-review penalty (observed on uid65).
+        # Serving the manifest to any registered caller is what makes us reviewable.
+        self.force_validator_permit = os.getenv("P44_FORCE_VALIDATOR_PERMIT", "0") == "1"
+        self.allow_non_registered = os.getenv("P44_ALLOW_NON_REGISTERED", "0") == "1"
 
         self.axon = bt.Axon(wallet=self.wallet, config=config)
         self.axon.attach(
@@ -218,6 +225,8 @@ class Miner:
         return synapse
 
     async def blacklist(self, synapse: DetectionSynapse) -> Tuple[bool, str]:
+        # Reference-aligned admission (see __init__ note). Deliberately NO stake floor:
+        # a hard floor blacklists the manifest poll and earns the -0.50 opaque penalty.
         hotkey = synapse.dendrite.hotkey if synapse.dendrite else None
         if not hotkey:
             return True, "no hotkey"
@@ -226,12 +235,10 @@ class Miner:
                 return False, "allowlisted"
             return True, "not in allowlist"
         if hotkey not in self.metagraph.hotkeys:
-            return True, "unregistered"
+            return (False, "non-registered allowed") if self.allow_non_registered else (True, "unregistered")
         uid = self.metagraph.hotkeys.index(hotkey)
-        if not bool(self.metagraph.validator_permit[uid]):
-            return True, "no validator permit"
-        if float(self.metagraph.S[uid]) < self.min_stake:
-            return True, "stake below minimum"
+        if self.force_validator_permit and not bool(self.metagraph.validator_permit[uid]):
+            return True, "non-validator (permit required)"
         return False, "ok"
 
     async def priority(self, synapse: DetectionSynapse) -> float:
