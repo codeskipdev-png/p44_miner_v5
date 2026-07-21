@@ -62,6 +62,25 @@ def _file_sha256(paths: List[Path]) -> str:
     return digest.hexdigest()
 
 
+def _served_model_path() -> Optional[Path]:
+    """The trained model artifact this arm actually serves (symlink-resolved). Each arm
+    dir holds exactly one serving_blend_v*.pkl (v5/v7 symlink v3's); STAGE/frontier
+    scratch files are excluded."""
+    cands = [
+        p for p in (REPO_ROOT / "artifacts").glob("serving_blend_v*.pkl")
+        if "STAGE" not in p.name and "frontier" not in p.name
+    ]
+    return sorted(cands)[0] if cands else None
+
+
+def _artifact_sha256() -> str:
+    """sha256 of the served model weights. We WITHHOLD the weights (no artifact_url),
+    but declaring their hash proves artifact integrity — required by the current
+    manifest-review policy (owner, 2026-07-21)."""
+    p = _served_model_path()
+    return hashlib.sha256(p.read_bytes()).hexdigest() if (p and p.exists()) else ""
+
+
 def build_manifest() -> Dict[str, Any]:
     impl = [
         REPO_ROOT / "serve" / "scorer.py",
@@ -78,6 +97,11 @@ def build_manifest() -> Dict[str, Any]:
         "license": "MIT",
         "repo_url": os.getenv("P44_REPO_URL", ""),
         "repo_commit": os.getenv("P44_REPO_COMMIT", ""),
+        # artifact_* describe the trained model weights. Weights are withheld (private
+        # competitive edge), so artifact_url is empty but artifact_sha256 is published.
+        "artifact_url": os.getenv("P44_ARTIFACT_URL", ""),
+        "artifact_sha256": _artifact_sha256(),
+        "model_card_url": os.getenv("P44_MODEL_CARD_URL", ""),
         "training_data_statement": (
             "Trained exclusively on the public Poker44 benchmark "
             "(api.poker44.net/api/v1/benchmark), sanitized with the reference "
@@ -86,6 +110,10 @@ def build_manifest() -> Dict[str, Any]:
         "training_data_sources": ["poker44-public-benchmark"],
         "private_data_attestation": (
             "No validator-private or label-bearing live data was used for training."
+        ),
+        "data_attestation": (
+            "Training used only the public Poker44 benchmark; no validator-private or "
+            "label-bearing live evaluation data was used."
         ),
         "inference_mode": "local",
         "implementation_files": [str(p.relative_to(REPO_ROOT)) for p in impl],
